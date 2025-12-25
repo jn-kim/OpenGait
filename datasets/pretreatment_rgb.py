@@ -9,8 +9,8 @@ import numpy as np
 import cv2
 from tqdm import tqdm
 
-SRC_0 = 'rgb_input_path'
-DST_0 = 'rgb_pkl_output_path'
+SRC_0 = '/data0/aix23907/gait/CCPG_G_SIL'  # 입력 RGB 경로
+DST_0 = '/data0/aix23907/gait/CCPG_RGB_256x128'  # 출력 경로 (256x128 pkl)
 
 SRC = SRC_0             # Path_of_RGB_rearranged
 DST = DST_0             # Path_of_RGB_256128pkl_PadResized
