@@ -9,7 +9,7 @@ import numpy as np
 import cv2
 from tqdm import tqdm
 
-SRC_0 = '/data0/aix23907/gait/CCPG_G_SIL'  # 입력 RGB 경로
+SRC_0 = '/data0/aix23907/gait/CCPG_D_MASK_FACE_SHOE'  # 입력 RGB 경로 (실제 RGB 이미지)
 DST_0 = '/data0/aix23907/gait/CCPG_RGB_256x128'  # 출력 경로 (256x128 pkl)
 
 SRC = SRC_0             # Path_of_RGB_rearranged
@@ -38,8 +38,19 @@ def job(src, id):
             ratios = []
             aligned_imgs = []
             for img_file in sorted(os.listdir(os.path.join(src, id, ty, vi))):
+                # .jpg 파일만 처리 (실루엣 .png 제외)
+                if not img_file.lower().endswith('.jpg'):
+                    continue
+                    
                 img_path = os.path.join(src, id, ty, vi, img_file)
                 img = cv2.imread(img_path)
+                if img is None:
+                    continue
+                
+                # RGB 이미지인지 확인 (3채널)
+                if len(img.shape) != 3 or img.shape[2] != 3:
+                    continue
+                
                 ratio = img.shape[1]/img.shape[0]
                 ratios.append(ratio)
                 aligned_img = np.transpose(cv2.cvtColor(resize_with_padding(img, (256, 128)), cv2.COLOR_BGR2RGB), (2, 0, 1))
@@ -53,7 +64,7 @@ def job(src, id):
                     
 if __name__ == '__main__':
     a = time()
-    po = Pool(8)
+    po = Pool(64)
     src_path = SRC
     
     cnt = 0

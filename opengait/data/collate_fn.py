@@ -53,7 +53,13 @@ class CollateFn(object):
 
         def sample_frames(seqs):
             global count
-            sampled_fras = [[] for i in range(feature_num)]
+            # Ensure feature_num doesn't exceed actual number of features
+            actual_feature_num = len(seqs)
+            if actual_feature_num < feature_num:
+                get_msg_mgr().log_debug(f'Warning: feature_num ({feature_num}) > actual features ({actual_feature_num}), using {actual_feature_num}')
+            # Use the minimum to avoid index errors
+            use_feature_num = min(actual_feature_num, feature_num)
+            sampled_fras = [[] for i in range(use_feature_num)]
             seq_len = len(seqs[0])
             indices = list(range(seq_len))
 
@@ -97,7 +103,10 @@ class CollateFn(object):
                     indices = np.random.choice(
                         indices, frames_num, replace=replace)
 
-            for i in range(feature_num):
+            for i in range(use_feature_num):
+                if i >= len(seqs):
+                    get_msg_mgr().log_debug(f'Warning: feature index {i} >= seqs length {len(seqs)}, skipping')
+                    continue
                 for j in indices[:self.frames_all_limit] if self.frames_all_limit > -1 and len(indices) > self.frames_all_limit else indices:
                     point_cloud_index = self.points_in_use.get('pointcloud_index') if self.points_in_use else None
                     if self.points_in_use is not None and point_cloud_index is not None and i == point_cloud_index:

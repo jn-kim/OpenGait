@@ -108,7 +108,7 @@ class DataSet(tordata.Dataset):
                     for vie in sorted(os.listdir(osp.join(dataset_root, lab, typ))):
                         seq_info = [lab, typ, vie]
                         seq_path = osp.join(dataset_root, *seq_info)
-                        seq_dirs = sorted(os.listdir(seq_path))
+                        seq_dirs = sorted([f for f in os.listdir(seq_path) if f.endswith('.pkl')])
                         if seq_dirs != []:
                             seq_dirs = [osp.join(seq_path, dir)
                                         for dir in seq_dirs]

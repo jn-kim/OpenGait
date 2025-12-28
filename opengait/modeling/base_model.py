@@ -327,37 +327,42 @@ class BaseModel(MetaModel, nn.Module):
         del seqs
         return ipts, labs, typs, vies, seqL
 
-    def train_step(self, loss_sum) -> bool:
+    def train_step(self, loss_sum, accumulate=False) -> bool:
         """Conduct loss_sum.backward(), self.optimizer.step() and self.scheduler.step().
 
         Args:
             loss_sum:The loss of the current batch.
+            accumulate: If True, only backward without step (for gradient accumulation).
         Returns:
             bool: True if the training is finished, False otherwise.
         """
 
-        self.optimizer.zero_grad()
+        if not accumulate:
+            self.optimizer.zero_grad()
         if loss_sum <= 1e-9:
             self.msg_mgr.log_warning(
                 "Find the loss sum less than 1e-9 but the training process will continue!")
 
         if self.engine_cfg['enable_float16']:
             self.Scaler.scale(loss_sum).backward()
-            self.Scaler.step(self.optimizer)
-            scale = self.Scaler.get_scale()
-            self.Scaler.update()
-            # Warning caused by optimizer skip when NaN
-            # https://discuss.pytorch.org/t/optimizer-step-before-lr-scheduler-step-error-using-gradscaler/92930/5
-            if scale != self.Scaler.get_scale():
-                self.msg_mgr.log_debug("Training step skip. Expected the former scale equals to the present, got {} and {}".format(
-                    scale, self.Scaler.get_scale()))
-                return False
+            if not accumulate:
+                self.Scaler.step(self.optimizer)
+                scale = self.Scaler.get_scale()
+                self.Scaler.update()
+                # Warning caused by optimizer skip when NaN
+                # https://discuss.pytorch.org/t/optimizer-step-before-lr-scheduler-step-error-using-gradscaler/92930/5
+                if scale != self.Scaler.get_scale():
+                    self.msg_mgr.log_debug("Training step skip. Expected the former scale equals to the present, got {} and {}".format(
+                        scale, self.Scaler.get_scale()))
+                    return False
         else:
             loss_sum.backward()
-            self.optimizer.step()
+            if not accumulate:
+                self.optimizer.step()
 
-        self.iteration += 1
-        self.scheduler.step()
+        if not accumulate:
+            self.iteration += 1
+            self.scheduler.step()
         return True
 
     def inference(self, rank):
@@ -402,6 +407,10 @@ class BaseModel(MetaModel, nn.Module):
     @ staticmethod
     def run_train(model):
         """Accept the instance object(model) here, and then run the train loop."""
+        accumulation_steps = model.engine_cfg.get('accumulation_steps', 1)
+        accumulation_counter = 0
+        accumulated_loss_info = None
+        
         for inputs in model.train_loader:
             ipts = model.inputs_pretreament(inputs)
             with autocast(enabled=model.engine_cfg['enable_float16']):
@@ -409,31 +418,71 @@ class BaseModel(MetaModel, nn.Module):
                 training_feat, visual_summary = retval['training_feat'], retval['visual_summary']
                 del retval
             loss_sum, loss_info = model.loss_aggregator(training_feat)
-            ok = model.train_step(loss_sum)
+            
+            # Accumulate loss_info
+            if accumulated_loss_info is None:
+                accumulated_loss_info = Odict(loss_info)
+            else:
+                for k, v in loss_info.items():
+                    if k in accumulated_loss_info:
+                        if isinstance(v, torch.Tensor):
+                            accumulated_loss_info[k] = accumulated_loss_info[k] + v
+                        elif isinstance(v, (int, float)):
+                            accumulated_loss_info[k] = accumulated_loss_info[k] + v
+                        elif isinstance(v, np.ndarray):
+                            accumulated_loss_info[k] = accumulated_loss_info[k] + v
+                    else:
+                        accumulated_loss_info[k] = v
+            
+            # Normalize loss by accumulation steps
+            if accumulation_steps > 1:
+                loss_sum = loss_sum / accumulation_steps
+            
+            # Accumulate gradients
+            accumulate = (accumulation_counter < accumulation_steps - 1)
+            ok = model.train_step(loss_sum, accumulate=accumulate)
             if not ok:
+                accumulation_counter = 0
+                accumulated_loss_info = None
                 continue
+            
+            accumulation_counter += 1
+            
+            # Only update and log after accumulation is complete
+            if accumulation_counter >= accumulation_steps:
+                accumulation_counter = 0
+                
+                # Average accumulated loss_info
+                if accumulation_steps > 1:
+                    for k, v in accumulated_loss_info.items():
+                        if isinstance(v, torch.Tensor):
+                            accumulated_loss_info[k] = v / accumulation_steps
+                        else:
+                            accumulated_loss_info[k] = v / accumulation_steps
+                
+                visual_summary.update(accumulated_loss_info)
+                visual_summary['scalar/learning_rate'] = model.optimizer.param_groups[0]['lr']
 
-            visual_summary.update(loss_info)
-            visual_summary['scalar/learning_rate'] = model.optimizer.param_groups[0]['lr']
+                model.msg_mgr.train_step(accumulated_loss_info, visual_summary)
+                accumulated_loss_info = None
+                
+                if model.iteration % model.engine_cfg['save_iter'] == 0:
+                    # save the checkpoint
+                    model.save_ckpt(model.iteration)
 
-            model.msg_mgr.train_step(loss_info, visual_summary)
-            if model.iteration % model.engine_cfg['save_iter'] == 0:
-                # save the checkpoint
-                model.save_ckpt(model.iteration)
-
-                # run test if with_test = true
-                if model.engine_cfg['with_test']:
-                    model.msg_mgr.log_info("Running test...")
-                    model.eval()
-                    result_dict = BaseModel.run_test(model)
-                    model.train()
-                    if model.cfgs['trainer_cfg']['fix_BN']:
-                        model.fix_BN()
-                    if result_dict:
-                        model.msg_mgr.write_to_tensorboard(result_dict)
-                    model.msg_mgr.reset_time()
-            if model.iteration >= model.engine_cfg['total_iter']:
-                break
+                    # run test if with_test = true
+                    if model.engine_cfg['with_test']:
+                        model.msg_mgr.log_info("Running test...")
+                        model.eval()
+                        result_dict = BaseModel.run_test(model)
+                        model.train()
+                        if model.cfgs['trainer_cfg']['fix_BN']:
+                            model.fix_BN()
+                        if result_dict:
+                            model.msg_mgr.write_to_tensorboard(result_dict)
+                        model.msg_mgr.reset_time()
+                if model.iteration >= model.engine_cfg['total_iter']:
+                    break
 
     @ staticmethod
     def run_test(model):

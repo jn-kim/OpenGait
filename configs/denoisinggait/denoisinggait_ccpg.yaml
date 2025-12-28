@@ -1,8 +1,8 @@
 data_cfg:
   dataset_name: CCPG
-  dataset_root: path_for_denoisinggait_ccpg
+  dataset_root: /data0/aix23907/gait/CCPG_DenoisingGait
   dataset_partition: ./datasets/CCPG/CCPG.json
-  num_workers: 8
+  num_workers: 4
   data_in_use: [True,True] # 0. denoising feature from diffusion (96x48); 1. silhouette (96x48)
 
   remove_no_gallery: false # Remove probe if no gallery for it
@@ -11,8 +11,8 @@ data_cfg:
 evaluator_cfg:
   enable_float16: true
   restore_ckpt_strict: true
-  restore_hint: 60000
-  save_name: GaitBasefusion_p0.5_threshold0.5_test_daFalse_8416
+  restore_hint: 80000
+  save_name: GaitBasefusion_p0.2_threshold0.1_test_daFalse_8416
   sampler:
     batch_shuffle: false
     batch_size: 4
@@ -69,8 +69,8 @@ model_cfg:
     - 24
   diffusion_ckpt: ./pretrained_LVMs/segmind/tiny-sd
   r: 3
-  p: 0.5
-  threshold: 0.5
+  p: 0.2
+  threshold: 0.1
 
 optimizer_cfg:
   lr: 0.1 #/2
@@ -81,33 +81,34 @@ optimizer_cfg:
 scheduler_cfg:
   gamma: 0.1
   milestones: # Learning Rate Reduction at each milestones
-    - 20000
     - 40000
-    - 50000
+    - 60000
+    - 70000
   scheduler: MultiStepLR
 
 trainer_cfg:
   enable_float16: true # half_percesion float for memory reduction and speedup
   fix_BN: false
   log_iter: 100
-  with_test: true
-  restore_ckpt_strict: true
+  with_test: false
+  restore_ckpt_strict: false
   restore_hint: 0
-  save_iter: 5000
-  save_name: GaitBasefusion_p0.5_threshold0.5_test_daFalse_8416
+  save_iter: 10000
+  save_name: GaitBasefusion_p0.2_threshold0.1_test_daFalse_8416
   sync_BN: true
-  total_iter: 60000
+  total_iter: 80000
+  accumulation_steps: 4 # Gradient accumulation steps (배치 사이즈 [8,8]에서 효과적인 배치 [32,8] 시뮬레이션, 메모리 여유 확보)
   sampler:
     batch_shuffle: true
     batch_size:
-      - 8 # TripletSampler, batch_size[0] indicates Number of Identity
-      - 4 #                 batch_size[1] indicates Samples sequqnce for each Identity
-    frames_num_fixed: 16 # fixed frames number for training
+      - 8 # TripletSampler, batch_size[0] indicates Number of Identity per GPU (OOM 방지를 위해 8로 설정, 전체 32 ID)
+      - 8 #                 batch_size[1] indicates Samples sequqnce for each Identity (OOM 방지를 위해 8로 조정, 논문: 16)
+    frames_num_fixed: 30 # fixed frames number for training (논문: 30 frames randomly sampled)
     frames_skip_num: 30
     frames_num_max: 24 # max frames number for unfixed training
     frames_num_min: 16 # min 
     # frames_skip_num: 8
-    sample_type: fixed_allordered # fixed control input frames number, unordered for controlling order of input tensor; Other options: unfixed_ordered or all_ordered
+    sample_type: fixed_unordered # fixed control input frames number, unordered for random sampling (논문: randomly sample 30 frames)
     type: TripletSampler
   transform:
     - type: NoOperation

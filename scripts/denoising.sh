@@ -3,7 +3,7 @@
 eval "$(conda shell.bash hook)"
 conda activate opengait
 
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
 cd /home/aix23907/OpenGait
 
@@ -12,6 +12,5 @@ python datasets/pretreatment_denoisinggait.py \
     --output_path /data0/aix23907/gait/CCPG_DenoisingGait \
     --sd_model_path runwayml/stable-diffusion-v1-5 \
     --timestep 700 \
-    --batch_size 8 \
-    --num_gpus 4
-
+    --batch_size 16 \
+    --num_gpus 8

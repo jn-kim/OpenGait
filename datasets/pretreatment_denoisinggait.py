@@ -1,11 +1,3 @@
-"""
-2-stage preprocessing for DenoisingGait: Extract Diffusion Features
-1. Read 256x128 aligned RGB pkl files
-2. Upscale to 768x384
-3. Extract predicted noise at t=700 using Stable Diffusion
-4. Save DenoisingFea_96x48.pkl
-"""
-
 import os
 import pickle
 import numpy as np
@@ -45,44 +37,66 @@ def upscale_image(img_array, target_size=(768, 384)):
 def extract_diffusion_features(rgb_images, vae, unet, scheduler, device, timestep=700, batch_size=8, desc="", gpu_position=1):
     all_predicted_noise = []
     num_frames = rgb_images.shape[0]
-    num_batches = (num_frames + batch_size - 1) // batch_size
+    current_batch_size = batch_size
     
-    batch_desc = f"{desc} [{num_batches} batches]"
-    for i in tqdm(range(0, num_frames, batch_size), desc=batch_desc, leave=False, total=num_batches, position=gpu_position+1):
-        end_idx = min(i + batch_size, num_frames)
+    i = 0
+    while i < num_frames:
+        end_idx = min(i + current_batch_size, num_frames)
         batch_images = rgb_images[i:end_idx]
         
-        images_tensor = torch.from_numpy(batch_images).float().to(device)
-        images_tensor = images_tensor / 255.0 * 2.0 - 1.0
-        
-        with torch.no_grad():
-            latents = vae.encode(images_tensor).latent_dist.sample()
-            latents = latents * vae.config.scaling_factor
+        try:
+            images_tensor = torch.from_numpy(batch_images).float().to(device)
+            images_tensor = images_tensor / 255.0 * 2.0 - 1.0
             
-            noise = torch.randn(latents.shape, device=device, dtype=latents.dtype)
-            noisy_latents = scheduler.add_noise(latents, noise, torch.tensor([timestep], device=device))
+            with torch.no_grad():
+                latents = vae.encode(images_tensor).latent_dist.mean
+                latents = latents * vae.config.scaling_factor
+                
+                batch_size_actual = latents.shape[0]
+                noise = torch.randn(latents.shape, device=device, dtype=latents.dtype)
+                
+                timesteps = torch.full(
+                    (batch_size_actual,), 
+                    timestep, 
+                    device=device, 
+                    dtype=torch.long
+                )
+                noisy_latents = scheduler.add_noise(latents, noise, timesteps)
+                
+                encoder_hidden_states = torch.zeros(
+                    (batch_size_actual, 77, 768), device=device, dtype=latents.dtype
+                )
+                
+                predicted_noise = unet(
+                    noisy_latents,
+                    timesteps,
+                    encoder_hidden_states=encoder_hidden_states,
+                ).sample
             
-            batch_size_actual = latents.shape[0]
-            encoder_hidden_states = torch.zeros(
-                (batch_size_actual, 77, 768), device=device, dtype=latents.dtype
-            )
+            all_predicted_noise.append(predicted_noise.cpu().numpy())
             
-            predicted_noise = unet(
-                noisy_latents,
-                timestep,
-                encoder_hidden_states=encoder_hidden_states,
-            ).sample
-        
-        all_predicted_noise.append(predicted_noise.cpu().numpy())
-        
-        del images_tensor, latents, noise, noisy_latents, predicted_noise
-        torch.cuda.empty_cache()
+            del images_tensor, latents, noise, noisy_latents, predicted_noise
+            torch.cuda.empty_cache()
+            
+            i = end_idx
+            current_batch_size = batch_size
+            
+        except torch.cuda.OutOfMemoryError:
+            torch.cuda.empty_cache()
+            if current_batch_size == 1:
+                raise RuntimeError("OOM even with batch_size=1")
+            current_batch_size = max(1, current_batch_size // 2)
+            tqdm.write(f"OOM detected, reducing batch_size to {current_batch_size}", file=None)
     
     return np.concatenate(all_predicted_noise, axis=0)
 
 
 def process_sequence(input_pkl_path, output_dir, vae, unet, scheduler, device, timestep=700, batch_size=8, seq_name="", gpu_id=0):
     gpu_position = 1 + gpu_id
+    
+    output_path = os.path.join(output_dir, "00-DenoisingFea_96x48.pkl")
+    if os.path.exists(output_path):
+        return True
     
     with open(input_pkl_path, 'rb') as f:
         rgb_256x128 = pickle.load(f)
@@ -91,7 +105,6 @@ def process_sequence(input_pkl_path, output_dir, vae, unet, scheduler, device, t
         return False
     
     num_frames = len(rgb_256x128)
-    num_batches = (num_frames + batch_size - 1) // batch_size
     
     rgb_768x384_list = []
     for frame in tqdm(rgb_256x128, desc=f"GPU{gpu_id} Upscale", leave=False, position=gpu_position, ncols=80):
@@ -105,7 +118,12 @@ def process_sequence(input_pkl_path, output_dir, vae, unet, scheduler, device, t
         desc=f"GPU{gpu_id} Diffusion", gpu_position=gpu_position
     )
     
-    output_path = os.path.join(output_dir, "00-DenoisingFea_96x48.pkl")
+    # UNet outputs (frames, 4, 48, 96) = (frames, channels, height, width)
+    # DenoisingGait expects (frames, 4, 96, 48) = (frames, channels, height, width)
+    # Transpose: (frames, 4, 48, 96) -> (frames, 4, 96, 48)
+    predicted_noise = predicted_noise.transpose(0, 1, 3, 2)
+    
+    os.makedirs(output_dir, exist_ok=True)
     with open(output_path, 'wb') as f:
         pickle.dump(predicted_noise, f)
     
@@ -160,10 +178,10 @@ def main():
                        help='Stable Diffusion model path')
     parser.add_argument('--timestep', type=int, default=700,
                        help='Timestep for noise prediction (default: 700)')
-    parser.add_argument('--batch_size', type=int, default=8,
-                       help='Batch size for processing frames (default: 8)')
-    parser.add_argument('--num_gpus', type=int, default=4,
-                       help='Number of GPUs to use (default: 4)')
+    parser.add_argument('--batch_size', type=int, default=16,
+                       help='Batch size for processing frames (default: 16)')
+    parser.add_argument('--num_gpus', type=int, default=8,
+                       help='Number of GPUs to use (default: 8)')
     args = parser.parse_args()
     
     print("=" * 60)
