@@ -1,0 +1,27 @@
+[2026-01-05 13:46:56] [INFO]: {'enable_float16': True, 'restore_ckpt_strict': True, 'restore_hint': 80000, 'save_name': 'GaitBasefusion_p0.2_threshold0.1_test_daFalse_8416', 'eval_func': 'evaluate_CCPG', 'sampler': {'batch_size': 4, 'sample_type': 'all_ordered', 'type': 'InferenceSampler', 'batch_shuffle': False, 'frames_all_limit': 720}, 'transform': [{'type': 'NoOperation'}, {'type': 'BaseSilTransform'}], 'metric': 'euc', 'cross_view_gallery': False}
+[2026-01-05 13:46:56] [INFO]: {'model': 'DenoisingGait', 'backbone_cfg': {'type': 'ResNet9', 'block': 'BasicBlock', 'channels': [64, 128, 256, 512], 'in_channel': 8, 'layers': [1, 1, 1, 1], 'strides': [1, 2, 2, 1], 'maxpool': False}, 'SeparateFCs': {'in_channels': 512, 'out_channels': 256, 'parts_num': 24}, 'SeparateBNNecks': {'class_num': 100, 'in_channels': 256, 'parts_num': 24}, 'bin_num': [24], 'diffusion_ckpt': './pretrained_LVMs/segmind/tiny-sd', 'r': 3, 'p': 0.2, 'threshold': 0.1}
+[2026-01-05 13:46:56] [INFO]: {'dataset_name': 'CCPG', 'dataset_root': '/data0/aix23907/gait/CCPG_DenoisingGait', 'num_workers': 6, 'dataset_partition': './datasets/CCPG/CCPG.json', 'remove_no_gallery': False, 'cache': False, 'test_dataset_name': 'CCPG', 'data_in_use': [True, True]}
+[2026-01-05 13:46:56] [INFO]: -------- Test Pid List --------
+[2026-01-05 13:46:56] [INFO]: [100, 101, ..., 199]
+[2026-01-05 13:47:15] [INFO]: Restore Parameters from output/CCPG/DenoisingGait/GaitBasefusion_p0.2_threshold0.1_test_daFalse_8416/checkpoints/GaitBasefusion_p0.2_threshold0.1_test_daFalse_8416-80000.pt !!!
+[2026-01-05 13:47:16] [INFO]: Parameters Count: 10.27320M
+[2026-01-05 13:47:16] [INFO]: Model Initialization Finished!
+[2026-01-05 13:54:09] [INFO]: ('gallery length', 3517, ['U1_D1', 'U2_D2', 'U3_D3'], 'probe length', 2326, ['U0_D0_BG', 'U0_D0'])
+[2026-01-05 13:54:22] [INFO]: ('gallery length', 1154, ['U0_D3'], 'probe length', 1166, ['U3_D3'])
+[2026-01-05 13:54:24] [INFO]: ('gallery length', 1175, ['U1_D1'], 'probe length', 1174, ['U1_D0'])
+[2026-01-05 13:54:26] [INFO]: ('gallery length', 1155, ['U0_D0'], 'probe length', 1171, ['U0_D0_BG'])
+[2026-01-05 13:54:28] [INFO]: ===Rank-1 (Exclude identical-view cases for Person Re-Identification)===
+[2026-01-05 13:54:28] [INFO]: CL: 86.758,	UP: 91.768,	DN: 92.419,	BG: 94.278
+[2026-01-05 13:54:28] [INFO]: ===mAP (Exclude identical-view cases for Person Re-Identification)===
+[2026-01-05 13:54:28] [INFO]: CL: 57.584,	UP: 73.218,	DN: 73.894,	BG: 78.670
+[2026-01-05 13:54:28] [INFO]: ===mINP (Exclude identical-view cases for Person Re-Identification)===
+[2026-01-05 13:54:28] [INFO]: CL: 14.675,	UP: 39.038,	DN: 40.434,	BG: 47.189
+[2026-01-05 13:54:31] [INFO]: ===Rank-1 (Include identical-view cases)===
+[2026-01-05 13:54:31] [INFO]: CL: 74.891,	UP: 78.443,	DN: 79.600,	BG: 83.717
+[2026-01-05 13:54:31] [INFO]: ===Rank-1 (Exclude identical-view cases)===
+[2026-01-05 13:54:31] [INFO]: CL: 72.522,	UP: 76.388,	DN: 77.571,	BG: 82.233
+[2026-01-05 13:54:31] [INFO]: ===Rank-1 of each angle (Exclude identical-view cases)===
+[2026-01-05 13:54:31] [INFO]: CL: [65.61 57.74 73.92 76.39 72.89 74.00 73.24 77.22 75.08 79.12]
+[2026-01-05 13:54:31] [INFO]: UP: [69.66 65.44 78.67 79.67 76.89 80.44 76.89 78.00 75.33 82.89]
+[2026-01-05 13:54:31] [INFO]: DN: [73.65 66.56 77.67 80.53 81.11 80.78 75.01 79.67 79.62 81.11]
+[2026-01-05 13:54:31] [INFO]: BG: [78.69 71.52 85.30 89.44 86.44 87.00 80.78 81.22 76.56 85.37]
